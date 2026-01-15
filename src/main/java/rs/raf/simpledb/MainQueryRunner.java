@@ -20,7 +20,7 @@ public class MainQueryRunner {
 	public static void main(String[] args) {
 		try {
 
-			boolean isnew = initDB("kolokvijumdb");
+			boolean isnew = initDB("rafdb");
 
 			if (isnew){
 				createDBTables();
@@ -246,10 +246,9 @@ public class MainQueryRunner {
 //		System.out.println("-----------------------------------------");
 		int rownum = 0;
 		while (s.next()) {
-//			String studname = s.getString("studname");
-//			int desetke = s.getInt("countofocena");
-//			System.out.println(studname + "\t\t" + desetke + "\t\t" + ++rownum);
+			rownum++;
 		}
+		System.out.println("Cross product rownum: " + rownum);
 		s.close();
 		tx.commit();
 	}
@@ -274,32 +273,35 @@ public class MainQueryRunner {
 		// 3. Join ISPIT i POLAGANJE (ispid = ispitid)
 		Plan ispitPlan = new TablePlan("ispit", tx);
 		Plan join1 = new MergeSortJoinPlan(filteredPolaganje, ispitPlan, "ispitid", "ispid", tx);
-//		Expression lhs3 = new FieldNameExpression("ispid");
-//		Expression rhs3 = new FieldNameExpression("ispitid");
-//		Predicate joinPred1 = new Predicate(new Term(lhs3, rhs3));
-//		Plan join1Selected = new SelectionPlan(join1, joinPred1);
+
 
 		// 4. Merge join: Result ⋈ PREDMET (predmetid = pid)
 		Plan join2 = new MergeSortJoinPlan(join1, filteredPredmet, "predmetid", "pid", tx);
 
-		// 5. Merge join: Result ⋈ STUDENT (polagstudid = sid)
-		Plan studentPlan = new TablePlan("student", tx);
-		Plan join3 = new MergeSortJoinPlan(join2, studentPlan, "polagstudid", "sid", tx);
 
-//		 6. GROUP BY sid sa COUNT(ocena)
+// 5. Cross Product za poslednji join
+		Plan studentPlan = new TablePlan("student", tx);
+		Plan join3 = new CrossProductPlan(join2, studentPlan);
+		Expression lhs5 = new FieldNameExpression("sid");
+		Expression rhs5 = new FieldNameExpression("polagstudid");
+		Predicate joinPred3 = new Predicate(new Term(lhs5, rhs5));
+		Plan finalJoin = new SelectionPlan(join3, joinPred3);
+
+		// 6. GROUP BY sid sa COUNT(ocena)
 		List<String> groupFields = Arrays.asList("sid", "studname");
 		List<AggregationFn> aggFns = Arrays.asList(
 				new CountFn("ocena")
 		);
-		Plan groupPlan = new GroupByPlan(join3, groupFields, aggFns, tx);
+		Plan groupPlan = new GroupByPlan(finalJoin, groupFields, aggFns, tx);
 
 		// 7. ORDER BY desetke
 		List<String> sortFields = Arrays.asList("countofocena");
 		Plan sortPlan = new SortPlan(groupPlan, sortFields, tx);
 
 		// 8. Projekcija finalnih kolona
-		List<String> fields = Arrays.asList("studname");
-		Plan finalPlan = new ProjectionPlan(sortPlan, fields);
+		List<String> fields = Arrays.asList("studname", "countofocena");
+		Plan finalPlan = new ProjectionPlan(groupPlan, fields);
+//		finalPlan.printPlan(0);
 
 		Scan s = finalPlan.open();
 //
@@ -309,8 +311,11 @@ public class MainQueryRunner {
 		int rownum = 0;
 		while (s.next()) {
 //			String studname = s.getString("studname");
-//			System.out.println(studname  + "\t\t" + ++rownum);
+//			int desetke = s.getInt("countofocena");
+//			System.out.println(studname + "\t\t" + desetke + "\t\t" + ++rownum);
+			rownum++;
 		}
+		System.out.println("Sort-merge rownum: " + rownum);
 		s.close();
 		tx.commit();
 	}
