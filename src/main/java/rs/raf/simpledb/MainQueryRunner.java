@@ -37,40 +37,13 @@ public class MainQueryRunner {
 			PREDMET(pid int, naziv varchar(25), smerid int)
 			*/
 
-			// Merenje brzine Cross Product Join
-			long startTime1 = System.nanoTime();
+//			queryManualPlan1();
+//
+//			queryManualPlan2()
+//		;
+
 			queryOptimized();
-			long endTime1 = System.nanoTime();
-			long duration1 = (endTime1 - startTime1) / 1_000_000; // konverzija u milisekunde
-
-			System.out.println("\n===========================================");
-			System.out.println("Cross Product Join time: " + duration1 + " ms");
-			System.out.println("===========================================\n");
-
-			// Merenje brzine Merge Sort Join
-			long startTime2 = System.nanoTime();
 			queryOptimizedMergeSortJoin();
-			long endTime2 = System.nanoTime();
-			long duration2 = (endTime2 - startTime2) / 1_000_000;
-
-			System.out.println("\n===========================================");
-			System.out.println("Merge Sort Join time: " + duration2 + " ms");
-			System.out.println("===========================================\n");
-
-			// Poređenje
-			System.out.println("COMPARISON:");
-			System.out.println("-----------");
-			System.out.println("Cross Product Join: " + duration1 + " ms");
-			System.out.println("Merge Sort Join:    " + duration2 + " ms");
-			System.out.println("Difference:			" + Math.abs(duration1 - duration2) + " ms");
-
-			if (duration1 < duration2) {
-				double speedup = (double) duration2 / duration1;
-				System.out.println("Cross Product is " + String.format("%.2f", speedup) + "x faster");
-			} else {
-				double speedup = (double) duration1 / duration2;
-				System.out.println("Merge Sort is " + String.format("%.2f", speedup) + "x faster");
-			}
 
 
 		}
@@ -201,18 +174,18 @@ public class MainQueryRunner {
 		Predicate ocena10 = new Predicate(new Term(lhs2, rhs2));
 		Plan filteredPolaganje = new SelectionPlan(polaganjePlan, ocena10);
 
-		// 3. Join ISPIT i POLAGANJE (ispid = ispitid)
+		// 3. Join ISPIT sa PREDMET (pid = predmetid) - prvo manje tabele
 		Plan ispitPlan = new TablePlan("ispit", tx);
-		Plan join1 = new CrossProductPlan(filteredPolaganje, ispitPlan);
-		Expression lhs3 = new FieldNameExpression("ispid");
-		Expression rhs3 = new FieldNameExpression("ispitid");
+		Plan join1 = new CrossProductPlan(filteredPredmet, ispitPlan);
+		Expression lhs3 = new FieldNameExpression("pid");
+		Expression rhs3 = new FieldNameExpression("predmetid");
 		Predicate joinPred1 = new Predicate(new Term(lhs3, rhs3));
 		Plan join1Selected = new SelectionPlan(join1, joinPred1);
 
-		// 4. Join sa PREDMET (pid = predmetid)
-		Plan join2 = new CrossProductPlan(join1Selected, filteredPredmet);
-		Expression lhs4 = new FieldNameExpression("pid");
-		Expression rhs4 = new FieldNameExpression("predmetid");
+		// 4. Join sa POLAGANJE (ispid = ispitid)
+		Plan join2 = new CrossProductPlan(join1Selected, filteredPolaganje);
+		Expression lhs4 = new FieldNameExpression("ispid");
+		Expression rhs4 = new FieldNameExpression("ispitid");
 		Predicate joinPred2 = new Predicate(new Term(lhs4, rhs4));
 		Plan join2Selected = new SelectionPlan(join2, joinPred2);
 
@@ -240,18 +213,15 @@ public class MainQueryRunner {
 		Plan finalPlan = new ProjectionPlan(sortPlan, fields);
 
 		Scan s = finalPlan.open();
-//
-//		System.out.println("\nOptimizovani upit - Studenti sa desetkama:");
-//		System.out.println("Student\t\t\tBroj desetki");
-//		System.out.println("-----------------------------------------");
 		int rownum = 0;
 		while (s.next()) {
 			rownum++;
 		}
-		System.out.println("Cross product rownum: " + rownum);
+		System.out.println("rownum: " + rownum);
 		s.close();
 		tx.commit();
 	}
+
 
 	private static void queryOptimizedMergeSortJoin() {
 		Transaction tx = new Transaction();
@@ -275,13 +245,17 @@ public class MainQueryRunner {
 		Plan join1 = new MergeSortJoinPlan(filteredPolaganje, ispitPlan, "ispitid", "ispid", tx);
 
 
-		// 4. Merge join: Result ⋈ PREDMET (predmetid = pid)
-		Plan join2 = new MergeSortJoinPlan(join1, filteredPredmet, "predmetid", "pid", tx);
+		// 4. Join sa PREDMET (pid = predmetid)
+		Plan join2 = new CrossProductPlan(join1, filteredPredmet);
+		Expression lhs4 = new FieldNameExpression("pid");
+		Expression rhs4 = new FieldNameExpression("predmetid");
+		Predicate joinPred2 = new Predicate(new Term(lhs4, rhs4));
+		Plan join2Selected = new SelectionPlan(join2, joinPred2);
 
 
 // 5. Cross Product za poslednji join
 		Plan studentPlan = new TablePlan("student", tx);
-		Plan join3 = new CrossProductPlan(join2, studentPlan);
+		Plan join3 = new CrossProductPlan(join2Selected, studentPlan);
 		Expression lhs5 = new FieldNameExpression("sid");
 		Expression rhs5 = new FieldNameExpression("polagstudid");
 		Predicate joinPred3 = new Predicate(new Term(lhs5, rhs5));
@@ -315,7 +289,7 @@ public class MainQueryRunner {
 //			System.out.println(studname + "\t\t" + desetke + "\t\t" + ++rownum);
 			rownum++;
 		}
-		System.out.println("Sort-merge rownum: " + rownum);
+		System.out.println("rownum: " + rownum);
 		s.close();
 		tx.commit();
 	}

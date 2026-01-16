@@ -1,23 +1,17 @@
-package rs.raf.simpledb.query.operators;
 
+package rs.raf.simpledb.query.operators;
+import rs.raf.simpledb.operators.SortScan;
 import rs.raf.simpledb.query.Constant;
-import rs.raf.simpledb.query.TempTable;
 import rs.raf.simpledb.record.RID;
-import rs.raf.simpledb.record.Schema;
-import rs.raf.simpledb.tx.Transaction;
+
 
 public class MergeSortJoinScan implements Scan {
-    private Scan s1;
-    private UpdateScan s2; // TempTable scan
+    private SortScan s1, s2;
     private String fld1, fld2;
-    private TempTable tempTable;
-    private Constant joinval = null;
-    private RID markedRid = null;
-    private boolean s1Valid = false;
-    private boolean s2Valid = false;
-    private boolean hasMatch = false;
+    private boolean s1Valid, s2Valid;
+    private Boolean marked;
 
-    public MergeSortJoinScan(Scan s1, UpdateScan s2, String fld1, String fld2) {
+    public MergeSortJoinScan(SortScan s1, SortScan s2, String fld1, String fld2) {
         this.s1 = s1;
         this.s2 = s2;
         this.fld1 = fld1;
@@ -31,21 +25,18 @@ public class MergeSortJoinScan implements Scan {
         s2.beforeFirst();
         s1Valid = s1.next();
         s2Valid = s2.next();
-        hasMatch = false;
+        marked = false;
     }
 
-    private boolean needsS2Advance = false;
-
-    // Impl sa pseudo kodom iz pogledanog videa
     @Override
     public boolean next() {
         do {
-            if (markedRid == null) {
-                // while (r < s) { advance r }
+            if (!marked) {
+                // while (l < r) { advance l }
                 while (s1Valid && s2Valid && s1.getVal(fld1).compareTo(s2.getVal(fld2)) < 0) {
                     s1Valid = s1.next();
                 }
-                // while (r > s) { advance s }
+                // while (l > r) { advance r }
                 while (s1Valid && s2Valid && s1.getVal(fld1).compareTo(s2.getVal(fld2)) > 0) {
                     s2Valid = s2.next();
                 }
@@ -53,35 +44,30 @@ public class MergeSortJoinScan implements Scan {
                 if (!s1Valid || !s2Valid) {
                     return false;
                 }
-
-                // mark start of "block" of s
-                markedRid = s2.getRid();
+                // mark r
+                s2.savePosition();
+                marked = true;
             }
 
-            // if (r == s)
+            // if (l == r)
             if (s1Valid && s2Valid && s1.getVal(fld1).equals(s2.getVal(fld2))) {
-                // result = <r, s>
-                // advance s
+                // result = <l, r>
+                // advance r
 //                System.out.println("MATCH: " + s1.getVal(fld1) + " == " + s2.getVal(fld2));
                 s2Valid = s2.next();
-                // return result
                 return true;
             } else {
-                // reset s to mark
-                if (markedRid != null) {
-                    s2.moveToRid(markedRid);
-                    s2Valid = true;
+                // reset r to mark
+                if (marked != null) {
+                    s2.restorePosition();
                 }
-                // advance r
+                // advance l
                 s1Valid = s1.next();
-                // mark = NULL
-                markedRid = null;
+                // mark = null
+                marked = false;
             }
         } while (true);
     }
-
-
-
 
     @Override
     public void close() {
@@ -117,6 +103,4 @@ public class MergeSortJoinScan implements Scan {
     public boolean hasField(String fldname) {
         return s1.hasField(fldname) || s2.hasField(fldname);
     }
-
 }
-

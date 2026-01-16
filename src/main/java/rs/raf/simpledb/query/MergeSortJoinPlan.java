@@ -1,5 +1,6 @@
 package rs.raf.simpledb.query;
 
+import rs.raf.simpledb.operators.SortScan;
 import rs.raf.simpledb.query.operators.MergeSortJoinScan;
 import rs.raf.simpledb.query.operators.Scan;
 import rs.raf.simpledb.query.operators.UpdateScan;
@@ -29,23 +30,10 @@ public class MergeSortJoinPlan implements Plan {
         Plan sortedP1 = new SortPlan(p1, sortList1, tx);
         Plan sortedP2 = new SortPlan(p2, sortList2, tx);
 
-        Schema s2Schema = sortedP2.schema();
-        TempTable tempTable = new TempTable(s2Schema, tx);
-        UpdateScan s2Temp = (UpdateScan) tempTable.open();
+        SortScan s1 = (SortScan) sortedP1.open();
+        SortScan s2 = (SortScan) sortedP2.open();
 
-        Scan s2Sorted = sortedP2.open(); // Nov sken
-        while (s2Sorted.next()) {
-            s2Temp.insert();
-            for (String fldname : s2Schema.fields()) {
-                s2Temp.setVal(fldname, s2Sorted.getVal(fldname));
-            }
-        }
-        s2Sorted.close();
-        s2Temp.beforeFirst();
-
-        Scan s1 = sortedP1.open();
-
-        return new MergeSortJoinScan(s1, s2Temp, fldname1, fldname2);
+        return new MergeSortJoinScan(s1, s2, fldname1, fldname2);
     }
 
 
