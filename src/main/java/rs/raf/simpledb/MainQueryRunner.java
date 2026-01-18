@@ -44,6 +44,7 @@ public class MainQueryRunner {
 
 			queryOptimized();
 			queryOptimizedMergeSortJoin();
+			queryOptimizedWithProjection();
 
 
 		}
@@ -215,9 +216,11 @@ public class MainQueryRunner {
 		Scan s = finalPlan.open();
 		int rownum = 0;
 		while (s.next()) {
-			rownum++;
+			String studname = s.getString("studname");
+			int desetke = s.getInt("countofocena");
+			System.out.println(studname + "\t\t" + desetke + "\t\t" + rownum++);
 		}
-		System.out.println("rownum: " + rownum);
+		System.out.println("Cross product rownum: " + rownum);
 		s.close();
 		tx.commit();
 	}
@@ -289,10 +292,87 @@ public class MainQueryRunner {
 //			System.out.println(studname + "\t\t" + desetke + "\t\t" + ++rownum);
 			rownum++;
 		}
-		System.out.println("rownum: " + rownum);
+		System.out.println("Sort merge rownum: " + rownum);
 		s.close();
 		tx.commit();
 	}
+
+	private static void queryOptimizedWithProjection() {
+		Transaction tx = new Transaction();
+
+		// 1. Filtriraj PREDMET (predGod = 1) + PROJEKCIJA
+		Plan predmetPlan = new TablePlan("predmet", tx);
+		Expression lhs1 = new FieldNameExpression("predgod");
+		Expression rhs1 = new ConstantExpression(new IntConstant(1));
+		Predicate predGod1 = new Predicate(new Term(lhs1, rhs1));
+		Plan filteredPredmet = new SelectionPlan(predmetPlan, predGod1);
+		// Projekcija: samo potrebni atributi
+		Plan projectedPredmet = new ProjectionPlan(filteredPredmet, Arrays.asList("pid"));
+
+		// 2. Filtriraj POLAGANJE (ocena = 10) + PROJEKCIJA
+		Plan polaganjePlan = new TablePlan("polaganje", tx);
+		Expression lhs2 = new FieldNameExpression("ocena");
+		Expression rhs2 = new ConstantExpression(new IntConstant(10));
+		Predicate ocena10 = new Predicate(new Term(lhs2, rhs2));
+		Plan filteredPolaganje = new SelectionPlan(polaganjePlan, ocena10);
+		// Projekcija: samo potrebni atributi
+		Plan projectedPolaganje = new ProjectionPlan(filteredPolaganje,
+				Arrays.asList("ispitid", "polagstudid", "ocena"));
+
+		// 3. ISPIT + PROJEKCIJA
+		Plan ispitPlan = new TablePlan("ispit", tx);
+		Plan projectedIspit = new ProjectionPlan(ispitPlan, Arrays.asList("ispid", "predmetid"));
+
+		// 4. Join PREDMET i ISPIT (predmetid = pid)
+		Plan join1 = new CrossProductPlan(projectedPredmet, projectedIspit);
+		Expression lhs3 = new FieldNameExpression("pid");
+		Expression rhs3 = new FieldNameExpression("predmetid");
+		Predicate joinPred1 = new Predicate(new Term(lhs3, rhs3));
+		Plan join1Selected = new SelectionPlan(join1, joinPred1);
+		// Projekcija nakon join-a: samo ispid
+
+		// 5. Join sa POLAGANJE (ispid = ispitid)
+		Plan join2 = new CrossProductPlan(join1Selected, projectedPolaganje);
+		Expression lhs4 = new FieldNameExpression("ispid");
+		Expression rhs4 = new FieldNameExpression("ispitid");
+		Predicate joinPred2 = new Predicate(new Term(lhs4, rhs4));
+		Plan join2Selected = new SelectionPlan(join2, joinPred2);
+
+
+		// 6. STUDENT + PROJEKCIJA
+		Plan studentPlan = new TablePlan("student", tx);
+
+		// 7. Join sa STUDENT (sid = polagStudId)
+		Plan join3 = new CrossProductPlan(join2Selected, studentPlan);
+		Expression lhs5 = new FieldNameExpression("sid");
+		Expression rhs5 = new FieldNameExpression("polagstudid");
+		Predicate joinPred3 = new Predicate(new Term(lhs5, rhs5));
+		Plan finalJoin = new SelectionPlan(join3, joinPred3);
+
+		// 8. GROUP BY sid sa COUNT(ocena)
+		List<String> groupFields = Arrays.asList("sid", "studname");
+		List<AggregationFn> aggFns = Arrays.asList(new CountFn("ocena"));
+		Plan groupPlan = new GroupByPlan(finalJoin, groupFields, aggFns, tx);
+
+		// 9. ORDER BY desetke
+		List<String> sortFields = Arrays.asList("countofocena");
+		Plan sortPlan = new SortPlan(groupPlan, sortFields, tx);
+
+		// 10. Projekcija finalnih kolona
+		List<String> fields = Arrays.asList("studname", "countofocena");
+		Plan finalPlan = new ProjectionPlan(sortPlan, fields);
+		finalPlan.printPlan(0);
+
+		Scan s = finalPlan.open();
+		int rownum = 0;
+		while (s.next()) {
+			rownum++;
+		}
+		System.out.println("Optimized with projection rownum: " + rownum);
+		s.close();
+		tx.commit();
+	}
+
 
 
 
