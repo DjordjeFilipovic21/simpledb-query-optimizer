@@ -53,7 +53,7 @@ public class MergeSortJoinScan implements Scan {
             if (s1Valid && s2Valid && s1.getVal(fld1).equals(s2.getVal(fld2))) {
                 // result = <l, r>
                 // advance r
-//                System.out.println("MATCH: " + s1.getVal(fld1) + " == " + s2.getVal(fld2));
+//                System.out.println("match: " + s1.getVal(fld1) + " == " + s2.getVal(fld2));
                 s2Valid = s2.next();
                 return true;
             } else {
